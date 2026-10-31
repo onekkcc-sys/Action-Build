@@ -112,17 +112,17 @@ try {
     $env:CLAUDE_CONFIG_DIR = $cdir
     $bash = 'C:\Program Files\Git\bin\bash.exe'
     # previous status line keeps working (run by the helper)
-    $out = ($json | & $bash -c $cmd) -join "`n"
-    Ok ($out.Trim() -eq 'my-old-line') "Git Bash: helper runs the user's previous status line ($out)"
+    $slOut = ($json | & $bash -c $cmd) -join "`n"
+    Ok ($slOut.Trim() -eq 'my-old-line') "Git Bash: helper runs the user's previous status line ($slOut)"
     Ok (Test-Path $usageFile) 'Git Bash: helper saved the rate limits'
     Remove-Item $usageFile
     Remove-Item (Join-Path $cdir 'agent-hub-prev-statusline.json')
-    $out = ($json | & $bash -c $cmd) -join "`n"
-    Ok ($out -match '5小时剩 77%' -and $out -match '每周剩 59%') "Git Bash: helper prints quota ($out)"
+    $slOut = ($json | & $bash -c $cmd) -join "`n"
+    Ok ($slOut -match '5小时剩 77%' -and $slOut -match '每周剩 59%') "Git Bash: helper prints quota ($slOut)"
     Ok (Test-Path $usageFile) 'Git Bash: usage file written'
     Remove-Item $usageFile
-    $out = ($json | powershell.exe -NoProfile -Command $cmd) -join "`n"
-    Ok ($out -match '5小时剩 77%') "Windows PowerShell: helper prints quota ($out)"
+    $slOut = ($json | powershell.exe -NoProfile -Command $cmd) -join "`n"
+    Ok ($slOut -match '5小时剩 77%') "Windows PowerShell: helper prints quota ($slOut)"
     Ok (Test-Path $usageFile) 'Windows PowerShell: usage file written'
     Remove-Item Env:\CLAUDE_CONFIG_DIR
 
