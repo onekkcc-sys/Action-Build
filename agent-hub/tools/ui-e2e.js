@@ -63,9 +63,12 @@ function ok(cond, msg) {
     ok(card.includes('手动录入') && card.includes('约 '), 'card shows source and approximate weekly reset');
 
     const cd1 = await page.textContent('[data-cd]');
-    await page.waitForTimeout(1600);
+    const t0 = Date.now();
+    const changed = await page.waitForFunction(t => document.querySelector('[data-cd]')?.textContent !== t, cd1, { timeout: 6000 })
+      .then(() => true, () => false);
     const cd2 = await page.textContent('[data-cd]');
-    ok(cd1 !== cd2 && /还有 01:5\d:\d\d/.test(cd2), `countdown ticks (${cd1} → ${cd2})`);
+    const diag = await page.evaluate(() => ({ skew: clockSkew, msLeft: +document.querySelector('[data-cd]').dataset.cd - Date.now(), visibility: document.visibilityState }));
+    ok(changed && /还有 01:5\d:\d\d/.test(cd2), `countdown ticks (${cd1} → ${cd2} after ${Date.now() - t0}ms) ${JSON.stringify(diag)}`);
 
     // --- message board
     await page.fill('#msgInput', '交接：先跑完测试');
