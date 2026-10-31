@@ -55,7 +55,9 @@ func main() {
 	if err != nil {
 		// already running? then just open another window onto it
 		if alreadyRunning(*port) {
-			openWindow(fmt.Sprintf("http://127.0.0.1:%d/", *port), dir)
+			if !*noWindow {
+				openWindow(fmt.Sprintf("http://127.0.0.1:%d/", *port), dir)
+			}
 			return
 		}
 		ln, err = net.Listen("tcp", "127.0.0.1:0")

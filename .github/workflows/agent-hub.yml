@@ -29,3 +29,37 @@ jobs:
         with:
           name: AgentHub-windows-x64
           path: agent-hub/dist/AgentHub.exe
+
+  test-windows:
+    needs: build
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: agent-hub
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+          cache: false
+      - name: Go tests on Windows
+        run: go test -count=1 ./...
+      - uses: actions/download-artifact@v4
+        with:
+          name: AgentHub-windows-x64
+          path: agent-hub/dist
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install Playwright (uses the runner's Edge, no browser download)
+        env:
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
+        run: npm install --no-save --no-package-lock playwright@1
+      - name: End-to-end test of AgentHub.exe
+        run: ./tools/windows-e2e.ps1 -Exe dist/AgentHub.exe -Out e2e-out
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-e2e-results
+          path: agent-hub/e2e-out
