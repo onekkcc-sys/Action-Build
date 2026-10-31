@@ -87,6 +87,52 @@ try {
     Ok ($lines[1] -eq $work) "console started in the work dir ($($lines[1]))"
     Ok (Wait-Until { -not (Api 17401 GET /api/state).running.($acc.id) } 30) 'running flag clears when the console closes'
 
+    Write-Host "== 4b. Claude auto-read through the Claude Code status line"
+    [Console]::OutputEncoding = [Text.Encoding]::UTF8
+    $cdir = Join-Path $tmp 'ah-claude-auto'
+    Remove-Item -Recurse -Force $cdir -ErrorAction SilentlyContinue
+    New-Item -ItemType Directory -Force $cdir | Out-Null
+    '{"model":"opus","statusLine":{"type":"command","command":"echo my-old-line"}}' | Set-Content -Encoding utf8NoBOM (Join-Path $cdir 'settings.json')
+    $st = Api 17401 POST /api/accounts @{ name = 'Claude Auto'; provider = 'claude'; configDir = $cdir; autoScan = $true }
+    $cacc = $st.accounts | Where-Object name -eq 'Claude Auto'
+    Ok ($st.statusLines.($cacc.id) -eq 'on') 'enabling auto-read installs the status line'
+    $settings = Get-Content -Raw (Join-Path $cdir 'settings.json') | ConvertFrom-Json
+    $cmd = $settings.statusLine.command
+    Ok ($cmd -eq '~/.agent-hub/agenthub.exe statusline' -and $settings.model -eq 'opus') "settings.json updated, other keys kept ($cmd)"
+    Ok (Test-Path (Join-Path $cdir 'settings.json.agent-hub-backup')) 'settings.json backed up'
+    $helper = Join-Path $env:USERPROFILE '.agent-hub\agenthub.exe'
+    $hb = [IO.File]::ReadAllBytes($helper)
+    $peOff = [BitConverter]::ToInt32($hb, 0x3c)
+    Ok ([BitConverter]::ToUInt16($hb, $peOff + 24 + 68) -eq 3) 'helper copy uses the console subsystem'
+
+    $r5 = [DateTimeOffset]::UtcNow.AddMinutes(90).ToUnixTimeSeconds()
+    $r7 = [DateTimeOffset]::UtcNow.AddDays(3).ToUnixTimeSeconds()
+    $json = '{"model":{"display_name":"Opus"},"rate_limits":{"five_hour":{"used_percentage":23,"resets_at":' + $r5 + '},"seven_day":{"used_percentage":41,"resets_at":' + $r7 + '}}}'
+    $usageFile = Join-Path $cdir 'agent-hub-usage.json'
+    $env:CLAUDE_CONFIG_DIR = $cdir
+    $bash = 'C:\Program Files\Git\bin\bash.exe'
+    # previous status line keeps working (run by the helper)
+    $out = ($json | & $bash -c $cmd) -join "`n"
+    Ok ($out.Trim() -eq 'my-old-line') "Git Bash: helper runs the user's previous status line ($out)"
+    Ok (Test-Path $usageFile) 'Git Bash: helper saved the rate limits'
+    Remove-Item $usageFile
+    Remove-Item (Join-Path $cdir 'agent-hub-prev-statusline.json')
+    $out = ($json | & $bash -c $cmd) -join "`n"
+    Ok ($out -match '5小时剩 77%' -and $out -match '每周剩 59%') "Git Bash: helper prints quota ($out)"
+    Ok (Test-Path $usageFile) 'Git Bash: usage file written'
+    Remove-Item $usageFile
+    $out = ($json | powershell.exe -NoProfile -Command $cmd) -join "`n"
+    Ok ($out -match '5小时剩 77%') "Windows PowerShell: helper prints quota ($out)"
+    Ok (Test-Path $usageFile) 'Windows PowerShell: usage file written'
+    Remove-Item Env:\CLAUDE_CONFIG_DIR
+
+    $st = Api 17401 POST /api/scan
+    $u = ($st.accounts | Where-Object name -eq 'Claude Auto').usage
+    Ok ($u.source -eq 'statusline' -and $u.fiveHour.left -eq 77 -and $u.weekly.left -eq 59 -and $u.fiveHour.reset -eq $r5 * 1000) 'Agent Hub picks up the Claude reading (77% / 59%)'
+    $st = Api 17401 POST "/api/accounts/$($cacc.id)/autoread" @{ enable = $false }
+    $settings = Get-Content -Raw (Join-Path $cdir 'settings.json') | ConvertFrom-Json
+    Ok ($st.statusLines.($cacc.id) -eq 'off' -and -not $settings.statusLine -and $settings.model -eq 'opus') 'turning auto-read off removes the status line'
+
     Write-Host "== 5. UI end-to-end in Microsoft Edge"
     node (Join-Path $PSScriptRoot 'ui-e2e.js') 'http://127.0.0.1:17401' $Out msedge
     Ok ($LASTEXITCODE -eq 0) 'UI E2E passed in Edge'

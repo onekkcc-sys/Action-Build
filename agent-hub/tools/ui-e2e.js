@@ -38,11 +38,14 @@ function ok(cond, msg) {
     await page.fill('input[name=name]', 'E2E 1');
     await page.fill('input[name=agent]', '阿测');
     await page.fill('input[name=plan]', 'Max 20x');
+    ok(await page.isChecked('input[name=autoScan]'), 'auto-read is on by default for new Claude accounts');
+    await page.uncheck('input[name=autoScan]'); // don't touch the real ~/.claude in tests
     await page.click('dialog button[type=submit]');
     await page.waitForFunction(() => location.hash.startsWith('#/account/'));
     ok((await page.textContent('.detail-head h2')).includes('阿测 · E2E 1'), 'new account opens its detail page');
     ok(await page.locator('#agentList .title', { hasText: '阿测 · E2E 1' }).count() === 1, 'new account shows in sidebar');
     const id = (await page.evaluate(() => location.hash)).split('/')[2];
+    ok((await page.textContent('.kv')).includes('自动读数') && await page.locator('[data-autoread="1"]').count() === 1, 'detail page offers to turn on auto-read');
 
     // --- enter a reading: 5h left 40 in 2h, weekly used 70 in 3d (approx)
     await page.click('.btn-row [data-usage]');

@@ -156,15 +156,25 @@ func scanAll(st *Store) (int, map[string]string) {
 	errs := map[string]string{}
 	results := map[string]*codexReading{}
 	for _, a := range snap.Accounts {
-		if !a.AutoScan || a.Provider != "codex" {
+		if !a.AutoScan {
 			continue
 		}
-		r, err := scanCodexHome(a.ConfigDir)
-		if err != nil {
-			errs[a.ID] = "没找到带额度信息的 Codex 会话文件"
-			continue
+		switch a.Provider {
+		case "codex":
+			r, err := scanCodexHome(a.ConfigDir)
+			if err != nil {
+				errs[a.ID] = "没找到带额度信息的 Codex 会话文件"
+				continue
+			}
+			results[a.ID] = r
+		case "claude":
+			u, err := readClaudeUsage(claudeDir(a))
+			if err != nil {
+				errs[a.ID] = "还没收到读数：用这个账号的 Claude Code 发一条消息后就会出现"
+				continue
+			}
+			results[a.ID] = &codexReading{usage: u}
 		}
-		results[a.ID] = r
 	}
 	n := 0
 	if len(results) == 0 {

@@ -37,6 +37,11 @@ func dataDir() string {
 }
 
 func main() {
+	// `agenthub statusline` is run by Claude Code as its status line command
+	if len(os.Args) > 1 && os.Args[1] == "statusline" {
+		runStatusLine(os.Stdin, os.Stdout)
+		return
+	}
 	port := flag.Int("port", defaultPort, "本地端口")
 	noWindow := flag.Bool("no-window", false, "只启动服务，不打开窗口")
 	dirFlag := flag.String("data", "", "数据目录")
@@ -83,6 +88,7 @@ func main() {
 		}
 	}()
 	go app.scanLoop()
+	go app.refreshHelper()
 
 	url := fmt.Sprintf("http://127.0.0.1:%d/", actualPort)
 	log.Printf("Agent Hub %s listening on %s (data %s)", version, url, dataPath)
@@ -197,5 +203,18 @@ func (app *App) scanLoop() {
 			secs = 60
 		}
 		time.Sleep(time.Duration(secs) * time.Second)
+	}
+}
+
+// refreshHelper keeps the status line helper copy in sync with this exe (e.g.
+// after the user downloads a new version) when any Claude account uses it.
+func (app *App) refreshHelper() {
+	for _, a := range app.store.Snapshot().Accounts {
+		if a.Provider == "claude" && a.AutoScan {
+			if err := ensureHelper(); err != nil {
+				log.Printf("refresh status line helper: %v", err)
+			}
+			return
+		}
 	}
 }

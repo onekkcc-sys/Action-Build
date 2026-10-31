@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -134,6 +135,9 @@ func (app *App) routes(static http.Handler) http.Handler {
 			in.Status = "unlinked"
 		}
 		app.mutate(w, func(d *Data) error {
+			if err := syncAutoRead(d, nil, &in); err != nil {
+				return err
+			}
 			in.Order = len(d.Accounts)
 			d.Accounts = append(d.Accounts, &in)
 			return nil
@@ -146,8 +150,14 @@ func (app *App) routes(static http.Handler) http.Handler {
 			return
 		}
 		app.withAccount(w, r, func(d *Data, a *Account) error {
-			a.Name, a.Agent, a.Provider, a.Plan, a.Color = in.Name, in.Agent, in.Provider, in.Plan, in.Color
-			a.Status, a.Note, a.ConfigDir, a.LaunchCmd, a.WorkDir, a.AutoScan = in.Status, in.Note, in.ConfigDir, in.LaunchCmd, in.WorkDir, in.AutoScan
+			before := *a
+			next := *a
+			next.Name, next.Agent, next.Provider, next.Plan, next.Color = in.Name, in.Agent, in.Provider, in.Plan, in.Color
+			next.Status, next.Note, next.ConfigDir, next.LaunchCmd, next.WorkDir, next.AutoScan = in.Status, in.Note, in.ConfigDir, in.LaunchCmd, in.WorkDir, in.AutoScan
+			if err := syncAutoRead(d, &before, &next); err != nil {
+				return err
+			}
+			*a = next
 			return nil
 		})
 	})
@@ -156,12 +166,37 @@ func (app *App) routes(static http.Handler) http.Handler {
 		app.mutate(w, func(d *Data) error {
 			for i, a := range d.Accounts {
 				if a.ID == id {
+					if err := syncAutoRead(d, a, nil); err != nil {
+						return err
+					}
 					d.Accounts = append(d.Accounts[:i], d.Accounts[i+1:]...)
 					return nil
 				}
 			}
 			return errNotFound
 		})
+	})
+	mux.HandleFunc("POST /api/accounts/{id}/autoread", func(w http.ResponseWriter, r *http.Request) {
+		var in struct {
+			Enable bool `json:"enable"`
+		}
+		if err := readBody(r, &in); err != nil {
+			fail(w, 400, err.Error())
+			return
+		}
+		app.withAccount(w, r, func(d *Data, a *Account) error {
+			before := *a
+			next := *a
+			next.AutoScan = in.Enable
+			if err := syncAutoRead(d, &before, &next); err != nil {
+				return err
+			}
+			*a = next
+			return nil
+		})
+		if in.Enable {
+			go scanAll(app.store)
+		}
 	})
 	mux.HandleFunc("POST /api/accounts/{id}/move", func(w http.ResponseWriter, r *http.Request) {
 		var in struct {
@@ -381,17 +416,25 @@ func (app *App) stateWith(w http.ResponseWriter, extra map[string]any) {
 	}
 	scanErrs := app.scanErrs
 	app.mu.Unlock()
+	statusLines := map[string]string{}
+	for _, a := range snap.Accounts {
+		if a.Provider == "claude" {
+			statusLines[a.ID] = statusLineState(claudeDir(a))
+		}
+	}
 	out := map[string]any{
-		"accounts":  snap.Accounts,
-		"decisions": snap.Decisions,
-		"settings":  snap.Settings,
-		"running":   running,
-		"scanErrs":  scanErrs,
-		"dataPath":  app.dataPath,
-		"port":      app.port,
-		"now":       nowMs(),
-		"version":   version,
-		"codexHome": defaultCodexHome(),
+		"statusLines": statusLines,
+		"claudeHome":  defaultClaudeDir(),
+		"accounts":    snap.Accounts,
+		"decisions":   snap.Decisions,
+		"settings":    snap.Settings,
+		"running":     running,
+		"scanErrs":    scanErrs,
+		"dataPath":    app.dataPath,
+		"port":        app.port,
+		"now":         nowMs(),
+		"version":     version,
+		"codexHome":   defaultCodexHome(),
 	}
 	for k, v := range extra {
 		out[k] = v
@@ -520,4 +563,31 @@ func (app *App) report(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, map[string]any{"ok": true, "account": target.Name, "usage": u})
+}
+
+// syncAutoRead installs or removes the Claude Code status line hook when a
+// Claude account's auto-read setting or config dir changes. before/after may
+// be nil (create/delete).
+func syncAutoRead(d *Data, before, after *Account) error {
+	on := func(a *Account) bool { return a != nil && a.Provider == "claude" && a.AutoScan }
+	if on(before) && (!on(after) || claudeDir(before) != claudeDir(after)) {
+		dir := claudeDir(before)
+		shared := false
+		for _, o := range d.Accounts {
+			if o.ID != before.ID && on(o) && claudeDir(o) == dir {
+				shared = true
+			}
+		}
+		if !shared {
+			if err := uninstallStatusLine(dir); err != nil {
+				return fmt.Errorf("关闭自动读数失败: %v", err)
+			}
+		}
+	}
+	if on(after) {
+		if err := installStatusLine(claudeDir(after)); err != nil {
+			return fmt.Errorf("开启自动读数失败: %v", err)
+		}
+	}
+	return nil
 }

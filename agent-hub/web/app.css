@@ -128,7 +128,7 @@ a { color: inherit; }
 .card-foot { color: var(--sub); font-size: 14.5px; margin-top: 18px; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .card-foot .acts { display: flex; gap: 4px; opacity: 0; transition: opacity .15s; }
 .card:hover .card-foot .acts { opacity: 1; }
-.mini-btn { border: 1px solid var(--line); background: #fff; border-radius: 9px; padding: 4px 10px; font-size: 13px; cursor: pointer; color: var(--sub); }
+.mini-btn { white-space: nowrap; flex: none; border: 1px solid var(--line); background: #fff; border-radius: 9px; padding: 4px 10px; font-size: 13px; cursor: pointer; color: var(--sub); }
 .mini-btn:hover { background: #f6f4ef; color: var(--text); }
 .card-empty { color: var(--faint); margin: 18px 0 6px; display: flex; justify-content: space-between; align-items: center; }
 

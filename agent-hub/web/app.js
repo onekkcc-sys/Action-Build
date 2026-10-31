@@ -255,9 +255,9 @@ function viewUsage() {
 function sourceLine(a) {
   const u = a.usage;
   const stale = isStale(u);
-  const src = { report: '会话上报', file: '会话文件', manual: '手动录入' }[u.source] || '读数';
+  const src = { report: '会话上报', statusline: '会话上报', file: '会话文件', manual: '手动录入' }[u.source] || '读数';
   if (!stale) return `${src} ${fmtHM(u.readAt)}${u.detail && u.source === 'report' ? ` · ${esc(u.detail)}` : ''}`;
-  if (u.source === 'file') return `本机 ${relBare(u.readAt)}没用过这个账号，读数停在 ${fmtRead(u.readAt)}；之后网页或别的设备上用的额度这里看不到`;
+  if (u.source === 'file' || u.source === 'statusline') return `本机 ${relBare(u.readAt)}没用过这个账号，读数停在 ${fmtRead(u.readAt)}；之后网页或别的设备上用的额度这里看不到`;
   return `读数 ${rel(u.readAt)}（${src} ${fmtShortDate(u.readAt)}）`;
 }
 
@@ -298,7 +298,9 @@ function usageCard(a, clickable) {
   if (!u) {
     return `<div class="card ${clickable ? 'click' : ''}" data-go="${clickable ? a.id : ''}">${head}
       <div class="card-empty"><span>还没有读数</span><button class="mini-btn" data-usage="${a.id}">录入读数</button></div>
-      ${a.provider === 'codex' && a.autoScan ? '<div class="hint">已开启自动读取 Codex 会话文件，用过一次 codex 后会自动出现</div>' : ''}</div>`;
+      ${a.provider === 'codex' && a.autoScan ? '<div class="hint">已开启自动读取 Codex 会话文件，用过一次 codex 后会自动出现</div>' : ''}
+      ${a.provider === 'claude' && a.autoScan ? '<div class="hint">已开启自动读数：用这个账号的 Claude Code 发一条消息后会自动出现</div>' : ''}
+      ${a.provider === 'claude' && !a.autoScan && !clickable ? `<div class="hint">可以在下方「账号信息」里开启自动读数</div>` : ''}</div>`;
   }
   return `<div class="card ${clickable ? 'click' : ''}" data-go="${clickable ? a.id : ''}">${head}
     <div class="card-sub">${sourceLine(a)}</div>
@@ -313,7 +315,7 @@ function viewAccount(a) {
   const on = isOnline(a);
   const idx = S.accounts.indexOf(a);
   const envName = a.provider === 'claude' ? 'CLAUDE_CONFIG_DIR' : a.provider === 'codex' ? 'CODEX_HOME' : 'AGENT_CONFIG_DIR';
-  const cfg = a.configDir || (a.provider === 'codex' ? `${S.codexHome}（默认）` : '（默认，未隔离）');
+  const cfg = a.configDir || (a.provider === 'codex' ? `${S.codexHome}（默认）` : a.provider === 'claude' ? `${S.claudeHome}（默认）` : '（默认，未隔离）');
   const launch = a.launchCmd || ({ claude: 'claude', codex: 'codex' }[a.provider] || '');
   const decs = S.decisions.filter(d => d.account === a.id && !d.done);
   const scanErr = S.scanErrs?.[a.id];
@@ -343,7 +345,7 @@ function viewAccount(a) {
             <dt>配置目录</dt><dd><code>${esc(cfg)}</code><div class="hint">启动时设置 ${envName}，每个账号用独立目录即可同时登录多个账号</div></dd>
             <dt>启动命令</dt><dd>${launch ? `<code>${esc(launch)}</code>` : '<span class="hint">未设置</span>'}</dd>
             <dt>工作目录</dt><dd>${a.workDir ? `<code>${esc(a.workDir)}</code>` : '<span class="hint">用户主目录</span>'}</dd>
-            ${a.provider === 'codex' ? `<dt>自动读取</dt><dd>${a.autoScan ? '已开启：定时读取 Codex 会话文件里的额度' : '未开启'}${scanErr && a.autoScan ? `<div class="warn">${esc(scanErr)}</div>` : ''}</dd>` : ''}
+            ${autoReadRow(a, scanErr)}
           </dl>
           ${a.note ? `<h4 style="margin-top:16px">备注</h4><div class="note-text">${esc(a.note)}</div>` : ''}
         </div>
@@ -359,6 +361,27 @@ function viewAccount(a) {
       </div>
     </div>
   </div>`;
+}
+
+function autoReadRow(a, scanErr) {
+  if (a.provider !== 'codex' && a.provider !== 'claude') return '';
+  const sl = S.statusLines?.[a.id];
+  let desc;
+  if (a.provider === 'codex') {
+    desc = a.autoScan ? '已开启：定时读取 Codex 会话文件里的额度' : '未开启';
+  } else if (!a.autoScan) {
+    desc = sl === 'other'
+      ? '未开启。开启后会接管这个账号的状态栏，你原来的状态栏会继续显示'
+      : '未开启。开启后 Claude Code 每次刷新状态栏都会把额度报给 Agent Hub';
+  } else if (sl === 'on') {
+    desc = '已开启：通过 Claude Code 状态栏读取（settings.json → statusLine）';
+  } else {
+    desc = `<span class="warn">已开启，但 settings.json 里的 statusLine 被改掉了${sl === 'error' ? '（文件读取失败）' : ''}，点「重新开启」修复</span>`;
+  }
+  const broken = a.provider === 'claude' && a.autoScan && sl !== 'on';
+  const btn = `<button class="mini-btn" data-autoread="${a.autoScan && !broken ? 0 : 1}">${broken ? '重新开启' : a.autoScan ? '关闭' : '开启'}</button>`;
+  return `<dt>自动读数</dt><dd><div style="display:flex;gap:10px;align-items:flex-start;justify-content:space-between"><span>${desc}</span>${btn}</div>
+    ${scanErr && a.autoScan && !broken ? `<div class="hint" style="margin-top:4px">${esc(scanErr)}</div>` : ''}</dd>`;
 }
 
 function decItem(d) {
@@ -400,6 +423,10 @@ function bindMain() {
   $$('[data-launch]', main).forEach(b => b.onclick = () => act(() => api('POST', `/api/accounts/${b.dataset.launch}/launch`), '已在新窗口启动'));
   $$('[data-opendir]', main).forEach(b => b.onclick = () => act(() => api('POST', `/api/accounts/${b.dataset.opendir}/opendir`)));
   const r = route();
+  $$('[data-autoread]', main).forEach(b => b.onclick = () => act(async () => {
+    await api('POST', `/api/accounts/${r.id}/autoread`, { enable: b.dataset.autoread === '1' });
+    if (b.dataset.autoread === '1') setTimeout(refresh, 1500);
+  }, b.dataset.autoread === '1' ? '已开启自动读数' : '已关闭自动读数'));
   $$('[data-move]', main).forEach(b => b.onclick = () => act(() => api('POST', `/api/accounts/${r.id}/move`, { dir: +b.dataset.move })));
   $$('[data-delmsg]', main).forEach(b => b.onclick = () => act(() => api('DELETE', `/api/accounts/${r.id}/messages/${b.dataset.delmsg}`)));
   $$('[data-toggle]', main).forEach(b => b.onclick = () => {
@@ -458,7 +485,7 @@ function openDialog(title, body, foot) {
 
 function accountDialog(a) {
   const isNew = !a;
-  a = a || { name: '', agent: '', provider: 'claude', plan: 'Max 20x', color: PALETTE[S.accounts.length % PALETTE.length], status: 'online', note: '', configDir: '', launchCmd: '', workDir: '', autoScan: false };
+  a = a || { name: '', agent: '', provider: 'claude', plan: 'Max 20x', color: PALETTE[S.accounts.length % PALETTE.length], status: 'online', note: '', configDir: '', launchCmd: '', workDir: '', autoScan: true };
   const body = `<div class="form">
     <label class="l">账号名称</label><input name="name" value="${esc(a.name)}" placeholder="例如 Claude 1" required>
     <label class="l">Agent 名字</label><input name="agent" value="${esc(a.agent)}" placeholder="可选，例如 阿璃（管家）">
@@ -474,14 +501,18 @@ function accountDialog(a) {
     <div></div><div class="hint" style="margin-top:-6px">Claude 用 CLAUDE_CONFIG_DIR，Codex 用 CODEX_HOME。每个账号一个目录，在里面分别登录即可多号并存。</div>
     <label class="l">启动命令</label><input name="launchCmd" value="${esc(a.launchCmd)}" placeholder="空 = claude / codex">
     <label class="l">工作目录</label><input name="workDir" value="${esc(a.workDir)}" placeholder="终端打开的位置（空 = 用户主目录）">
-    <label class="l"></label><label class="check" id="autoScanRow"><input type="checkbox" name="autoScan" ${a.autoScan ? 'checked' : ''}> 自动读取 Codex 会话文件里的额度（sessions/*.jsonl）</label>
+    <label class="l"></label><label class="check" id="autoScanRow"><input type="checkbox" name="autoScan" ${a.autoScan ? 'checked' : ''}> <span id="autoScanText"></span></label>
     <label class="l">备注</label><textarea name="note" rows="3" placeholder="邮箱、到期日、用途…">${esc(a.note)}</textarea>
   </div>`;
   const foot = `${isNew ? '' : '<button type="button" class="btn danger" id="delAcc">删除账号</button>'}<span class="grow"></span>
     <button type="button" class="btn" data-close>取消</button><button type="submit" class="btn dark">${isNew ? '添加' : '保存'}</button>`;
   openDialog(isNew ? '新账号' : '编辑账号', body, foot);
   const f = $('form', dlg);
-  const syncProvider = () => { $('#autoScanRow').style.display = f.provider.value === 'codex' ? '' : 'none'; };
+  const syncProvider = () => {
+    const p = f.provider.value;
+    $('#autoScanRow').style.display = p === 'codex' || p === 'claude' ? '' : 'none';
+    $('#autoScanText').textContent = p === 'codex' ? '自动读数：读取 Codex 会话文件里的额度（sessions/*.jsonl）' : '自动读数：通过 Claude Code 状态栏读取额度（会写入配置目录的 settings.json）';
+  };
   f.provider.onchange = () => {
     syncProvider();
     if (isNew && f.provider.value === 'codex') { f.autoScan.checked = true; if (f.plan.value === 'Max 20x') f.plan.value = 'Pro'; }
@@ -495,7 +526,7 @@ function accountDialog(a) {
     const v = {
       name: f.name.value.trim(), agent: f.agent.value.trim(), provider: f.provider.value, plan: f.plan.value.trim(),
       color: f.color.value, status: f.status.value, configDir: f.configDir.value.trim(), launchCmd: f.launchCmd.value.trim(),
-      workDir: f.workDir.value.trim(), autoScan: f.provider.value === 'codex' && f.autoScan.checked, note: f.note.value,
+      workDir: f.workDir.value.trim(), autoScan: (f.provider.value === 'codex' || f.provider.value === 'claude') && f.autoScan.checked, note: f.note.value,
     };
     if (!v.name) { f.name.focus(); toast('请填写账号名称', true); return; }
     act(async () => {
